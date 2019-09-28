@@ -4,7 +4,9 @@ import sys
 import json
 import re
 import os
+from PIL import Image
 import requests
+from io import BytesIO
 from tqdm import tqdm
 from bs4 import BeautifulSoup
 
@@ -14,14 +16,26 @@ with open('credentials.json') as infile:
 KEY = creds['KEY']
 SECRET = creds['SECRET']
 
-def download_file(url, local_filename):
+def download_file(url, local_filename, min_dim=None, resize_to=None):
     if local_filename is None:
         local_filename = url.split('/')[-1]
     r = requests.get(url, stream=True)
-    with open(local_filename, 'wb') as f:
-        for chunk in r.iter_content(chunk_size=1024):
-            if chunk:
-                f.write(chunk)
+    
+    response = requests.get(url)
+    img = Image.open(BytesIO(response.content))
+    w, h = float(img.width), float(img.height)
+    aspect = w / h
+
+    if w < min_dim or h < min_dim:
+        return None
+
+    if resize_to is not None:
+        rw, rh = w / resize_to, h / resize_to
+        r = min(rw, rh)
+        w2, h2 = int(w/r), int(h/r)
+        img = img.resize((w2, h2), Image.LANCZOS)
+
+    img.save(local_filename)
     return local_filename
 
 
@@ -66,7 +80,7 @@ def get_photos(qs, qg, page=1, original=False, bbox=None):
     return results
 
 
-def search(qs, qg, bbox=None, original=False, max_pages=None):
+def search(qs, qg, bbox=None, original=False, max_pages=None, min_dim=None, resize_to=None):
     # create a folder for the query if it does not exist
     foldername = os.path.join('images', re.sub(r'[\W]', '_', qs if qs is not None else "group_%s"%qg))
     if bbox is not None:
@@ -112,7 +126,7 @@ def search(qs, qg, bbox=None, original=False, max_pages=None):
             extension = url.split('.')[-1]
             localname = os.path.join(foldername, '{}.{}'.format(photo['id'], extension))
             if not os.path.exists(localname):
-                download_file(url, localname)
+                download_file(url, localname, min_dim=min_dim, resize_to=resize_to)
         except Exception as e:
             continue
 
@@ -123,13 +137,17 @@ if __name__ == '__main__':
     parser.add_argument('--search', '-s', dest='q_search', default=None, required=False, help='Search term')
     parser.add_argument('--group', '-g', dest='q_group', default=None, required=False, help='Group url, e.g. https://www.flickr.com/groups/scenery/')
     parser.add_argument('--original', '-o', dest='original', action='store_true', default=False, required=False, help='Download original sized photos if True, large (1024px) otherwise')
-    parser.add_argument('--max-pages', '-m', dest='max_pages', required=False, help='Max pages (default none)')
+    parser.add_argument('--max-pages', '-m', dest='max_pages', type=int, required=False, help='Max pages (default none)')
     parser.add_argument('--bbox', '-b', dest='bbox', required=False, help='Bounding box to search in, separated by commas like so: minimum_longitude,minimum_latitude,maximum_longitude,maximum_latitude')
+    parser.add_argument('--min-dim', '-d', dest='min_dim', type=int, default=None, required=False, help='Reject images whose smallest dimension is below this')
+    parser.add_argument('--resize-to', '-r', dest='resize_to', type=int, default=None, required=False, help='Resize images so smallest dimension is this')
     args = parser.parse_args()
 
     qs = args.q_search
     qg = args.q_group
     original = args.original
+    min_dim = args.min_dim
+    resize_to = args.resize_to
 
     if qs is None and qg is None:
         sys.exit('Must specify a search term or group id')
@@ -153,5 +171,5 @@ if __name__ == '__main__':
     if args.max_pages:
         max_pages = int(args.max_pages)
 
-    search(qs, qg, bbox, original, max_pages)
+    search(qs, qg, bbox, original, max_pages, min_dim, resize_to)
 
