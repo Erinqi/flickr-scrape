@@ -16,6 +16,7 @@ with open('credentials.json') as infile:
 KEY = creds['KEY']
 SECRET = creds['SECRET']
 
+
 def download_file(url, local_filename, min_dim=None, resize_to=None):
     if local_filename is None:
         local_filename = url.split('/')[-1]
@@ -108,7 +109,10 @@ def search(qs, qg, bbox=None, original=False, max_pages=None, min_dim=None, resi
         while current_page < total_pages:
             print('downloading metadata, page {} of {}'.format(current_page, total_pages))
             current_page += 1
-            photos += get_photos(qs, qg, page=current_page, original=original, bbox=bbox)['photo']
+            try:
+                photos += get_photos(qs, qg, page=current_page, original=original, bbox=bbox)['photo']
+            except:
+                print('missed page %d'%current_page)
             time.sleep(0.5)
 
         with open(jsonfilename, 'w') as outfile:
